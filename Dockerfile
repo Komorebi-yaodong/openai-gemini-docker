@@ -2,7 +2,7 @@
 FROM denoland/deno:2.0.2
 
 # 您的应用程序将监听的端口
-EXPOSE 8000
+EXPOSE 7860
 
 # 设置工作目录
 WORKDIR /app

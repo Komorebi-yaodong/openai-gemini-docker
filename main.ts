@@ -1,7 +1,7 @@
 import worker from "./worker.mjs";
 
-// 从环境变量中获取端口，如果未设置则默认为 8000
-const port = parseInt(Deno.env.get("PORT") || "8000");
+// 从环境变量中获取端口，如果未设置则默认为 7860
+const port = parseInt(Deno.env.get("PORT") || "7860");
 
 console.log(`HTTP server listening on http://localhost:${port}`);
 
