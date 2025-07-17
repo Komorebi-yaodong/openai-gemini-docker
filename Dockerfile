@@ -16,5 +16,7 @@ COPY . .
 ENV PORT=3000
 EXPOSE 3000
 
+USER root
+
 # 容器启动时运行的命令
 CMD [ "npm", "start" ]
