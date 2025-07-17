@@ -10,9 +10,8 @@ export default {
       return new Response(err.message, fixCors({ status: err.status ?? 500 }));
     };
     try {
-      // const auth = request.headers.get("Authorization");
-      // const apiKey = auth?.split(" ")[1];
-      let apiKey = process.env.GEMINI_API_KEY;
+      const auth = request.headers.get("Authorization");
+      const apiKey = auth?.split(" ")[1];
       const assert = (success) => {
         if (!success) {
           throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
