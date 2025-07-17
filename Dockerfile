@@ -1,22 +1,24 @@
-# 使用一个较新的、轻量的 Node.js 镜像
-FROM node:20-slim
+# 使用官方 Deno 镜像
+FROM denoland/deno:2.0.2
+
+# 您的应用程序将监听的端口
+EXPOSE 8000
 
 # 设置工作目录
 WORKDIR /app
 
-# 复制 package.json 文件并安装依赖（即使没有依赖，这也是个好习惯）
-COPY package.json .
-# 如果你有依赖，这行会安装它们。没有的话，它会很快执行完毕。
-RUN npm install --omit=dev
+# 为了安全起见，最好不要以 root 用户运行
+USER deno
 
-# 复制所有项目文件到工作目录
-COPY . .
+# 复制应用程序文件到工作目录
+# 将 worker.mjs 和 main.ts 都复制过去
+COPY worker.mjs .
+COPY main.ts .
 
-# 从环境变量设置端口，并暴露它
-ENV PORT=3000
-EXPOSE 3000
+# 缓存依赖并编译主应用程序，这将加快容器的启动速度
+RUN deno cache main.ts
 
-USER root
-
-# 容器启动时运行的命令
-CMD [ "npm", "start" ]
+# 运行应用程序的命令
+# --allow-net 是 fetch 和网络服务所必需的
+# --allow-env 用于读取 PORT 等环境变量
+CMD ["run", "--allow-net", "--allow-env", "main.ts"]
