@@ -1,0 +1,13 @@
+{
+  "name": "gemini-oai-docker",
+  "version": "1.0.0",
+  "description": "A proxy for Gemini API, compatible with OpenAI format, running in Docker.",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {}
+}
