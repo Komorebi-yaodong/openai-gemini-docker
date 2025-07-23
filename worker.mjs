@@ -101,7 +101,7 @@ async function handleModels(apiKey) {
     }
     return new Response(body, fixCors(response));
 }
-const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
+const DEFAULT_EMBEDDINGS_MODEL = "gemini-embedding-001";
 async function handleEmbeddings(req, apiKey) {
     if (typeof req.model !== "string") {
         throw new HttpError("model is not specified", 400);
@@ -110,7 +110,7 @@ async function handleEmbeddings(req, apiKey) {
     if (req.model.startsWith("models/")) {
         model = req.model;
     } else {
-        if (!req.model.startsWith("gemini-")) {
+        if (!req.model.includes("embedding")) {
             req.model = DEFAULT_EMBEDDINGS_MODEL;
         }
         model = "models/" + req.model;
@@ -286,7 +286,7 @@ async function handleSpeech(req, apiKey) {
         throw new HttpError("Failed to extract audio data from Gemini response.", 500);
     }
     const pcmData = Buffer.from(audioDataBase64, 'base64');
-    const responseFormat = req.response_format || 'mp3';
+    const responseFormat = req.response_format || 'wav';
     let audioData;
     let contentType;
     const corsHeaders = fixCors({}).headers;
@@ -338,7 +338,7 @@ async function handleCompletions (req, apiKey) {
   
   const isImageGenerationRequest = model.includes("image-generation");
   
-  let body = await transformRequest(req);
+  let body = await transformRequest(req, model);
 
   if (isImageGenerationRequest) {
     body.generationConfig = body.generationConfig || {};
@@ -453,12 +453,8 @@ const fieldsMap = {
   top_k: "topK",
   top_p: "topP",
 };
-const thinkingBudgetMap = {
-  low: 1024,
-  medium: 8192,
-  high: 24576,
-};
-const transformConfig = (req) => {
+
+const transformConfig = (req, model) => {
   let cfg = {};
   for (let key in req) {
     const matchedKey = fieldsMap[key];
@@ -486,7 +482,21 @@ const transformConfig = (req) => {
     }
   }
   if (req.reasoning_effort) {
-    cfg.thinkingConfig = { thinkingBudget: thinkingBudgetMap[req.reasoning_effort] };
+    let thinkingBudget;
+    switch (req.reasoning_effort) {
+      case "low":
+        thinkingBudget = model?.includes("pro") ? 128 : 0;
+        break;
+      case "medium":
+        thinkingBudget = -1;
+        break;
+      case "high":
+        thinkingBudget = 24576;
+        break;
+    }
+    if (typeof thinkingBudget !== "undefined") {
+      cfg.thinkingConfig = { thinkingBudget, includeThoughts: true };
+    }
   }
   return cfg;
 };
@@ -765,10 +775,10 @@ const transformTools = (req) => {
   }
   return { tools, tool_config };
 };
-const transformRequest = async (req) => ({
+const transformRequest = async (req, model) => ({
   ...await transformMessages(req.messages),
   safetySettings,
-  generationConfig: transformConfig(req),
+  generationConfig: transformConfig(req, model),
   ...transformTools(req),
 });
 
@@ -788,6 +798,8 @@ const reasonsMap = {
 const transformCandidates = (key, cand) => {
   const message = { role: "assistant" };
   const contentParts = [];
+  const reasoningParts = [];
+
   for (const part of cand.content?.parts ?? []) {
     if (part.functionCall) {
       const fc = part.functionCall;
@@ -800,6 +812,8 @@ const transformCandidates = (key, cand) => {
           arguments: JSON.stringify(fc.args),
         }
       });
+    } else if (part.thought === true && part.text) {
+      reasoningParts.push(part.text);
     } else if (part.text) {
       contentParts.push(part.text);
     } else if (part.inlineData) {
@@ -808,7 +822,14 @@ const transformCandidates = (key, cand) => {
       contentParts.push(markdownImage);
     }
   }
+
+  const reasoningText = reasoningParts.join("\n\n");
+  if (reasoningText) {
+    message.reasoning_content = reasoningText;
+  }
+
   message.content = contentParts.length > 0 ? contentParts.join("\n\n") : null;
+
   return {
     index: cand.index || 0,
     [key]: message,
@@ -816,6 +837,7 @@ const transformCandidates = (key, cand) => {
     finish_reason: message.tool_calls ? "tool_calls" : reasonsMap[cand.finishReason] || cand.finishReason,
   };
 };
+
 const transformCandidatesMessage = (cand) => transformCandidates("message", cand);
 const transformCandidatesDelta = (cand) => transformCandidates("delta", cand);
 
@@ -918,9 +940,19 @@ function toOpenAiStream (line, controller) {
     }));
   }
   delete cand.delta.role;
-  if ("content" in cand.delta) {
+
+  if (cand.delta.content === null) {
+    delete cand.delta.content;
+  }
+
+  const hasContent = "content" in cand.delta;
+  const hasReasoning = "reasoning_content" in cand.delta;
+  const hasToolCalls = "tool_calls" in cand.delta;
+  
+  if (hasContent || hasReasoning || hasToolCalls) {
     controller.enqueue(sseline(obj));
   }
+
   cand.finish_reason = finish_reason;
   if (data.usageMetadata && this.streamIncludeUsage) {
     obj.usage = transformUsage(data.usageMetadata);
