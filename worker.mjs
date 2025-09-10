@@ -618,8 +618,8 @@ const transformFnCalls = ({ tool_calls }) => {
 const transformMsg = async ({ content }) => {
   const parts = [];
   if (!Array.isArray(content)) {
-    if (content) {
-        parts.push({ text: content });
+    if (typeof content === 'string') {
+        parts.push(...parseAssistantContent(content));
     }
     return parts;
   }
@@ -628,10 +628,15 @@ const transformMsg = async ({ content }) => {
     switch (item.type) {
       case "input_text":
       case "text":
-        parts.push({ text: item.text });
+        if (item.text) {
+          parts.push(...parseAssistantContent(item.text));
+        }
         break;
       case "image_url":
-        parts.push(await parseImg(item.image_url.url));
+        const imageUrlObject = Array.isArray(item.image_url) ? item.image_url[0] : item.image_url;
+        if (imageUrlObject && imageUrlObject.url) {
+          parts.push(await parseImg(imageUrlObject.url));
+        }
         break;
       case "input_file": {
         let fileDataUri = item.file_data;
@@ -716,19 +721,6 @@ function parseAssistantContent(content) {
   return parts;
 }
 
-function parseContentArray(contentArray) {
-    const geminiParts = [];
-    if (!Array.isArray(contentArray)) return geminiParts;
-
-    for (const item of contentArray) {
-        if (item.type === 'text' && typeof item.text === 'string') {
-            const parsedSubParts = parseAssistantContent(item.text);
-            geminiParts.push(...parsedSubParts);
-        }
-    }
-    return geminiParts;
-}
-
 const transformMessages = async (messages) => {
   if (!messages) { return []; }
   const contents = [];
@@ -749,19 +741,9 @@ const transformMessages = async (messages) => {
         continue;
       case "assistant":
         item.role = "model";
-        let assistantParts;
-        if (item.tool_calls) {
-            assistantParts = transformFnCalls(item);
-        } else if (typeof item.content === 'string') {
-          assistantParts = parseAssistantContent(item.content);
-        } else if (Array.isArray(item.content)) {
-          assistantParts = parseContentArray(item.content);
-        } else {
-          assistantParts = [];
-        }
         contents.push({
           role: item.role,
-          parts: assistantParts
+          parts: item.tool_calls ? transformFnCalls(item) : await transformMsg(item),
         });
         continue;
       case "user":
