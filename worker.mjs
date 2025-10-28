@@ -376,21 +376,23 @@ async function handleCompletions (req, apiKey) {
     if (extra.thinking_config) {
       body.generationConfig.thinkingConfig = extra.thinking_config;
     }
-    // [MODIFICATION START] 增加对 url_context 工具的检测
-    // 如果客户端请求的 extra_body.google 中包含 url_context: true
-    // 则为 Gemini 请求添加 url_context 工具
-    if (extra.url_context) {
-        body.tools = body.tools || [];
-        body.tools.push({ "url_context": {} });
-    }
-    // [MODIFICATION END]
   }
   switch (true) {
     case model.endsWith(":search"):
       model = model.slice(0,-7);
-    case req.model?.includes("-search-preview"):
       body.tools = body.tools || [];
-      body.tools.push({googleSearch: {}});
+      body.tools.push({"googleSearch": {}});
+      break;
+    case model.endsWith(":url"):
+      model = model.slice(0, -4);
+      body.tools = body.tools || [];
+      body.tools.push({ "url_context": {} });
+      break;
+    case model.endsWith(":execode"):
+      model = model.slice(0, -8);
+      body.tools = body.tools || [];
+      body.tools.push({ "code_execution": {} });
+      break;
   }
   const TASK = req.stream ? "streamGenerateContent" : "generateContent";
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
@@ -839,6 +841,23 @@ const transformCandidates = (key, cand) => {
   }
 
   message.content = contentParts.length > 0 ? contentParts.join("\n\n") : null;
+
+  const chunks = cand.groundingMetadata?.groundingChunks;
+  if (Array.isArray(chunks) && chunks.length > 0) {
+    const sources = chunks
+      .filter(chunk => chunk.web?.uri && chunk.web?.title)
+      .map(chunk => `> [${chunk.web.title}](${chunk.web.uri})`);
+
+    if (sources.length > 0) {
+      const sourcesMarkdown = `\n\n---\n${sources.join('\n')}`;
+      if (message.content) {
+        message.content += sourcesMarkdown;
+      } else {
+        // In the rare case there's no text content but there are sources
+        message.content = sourcesMarkdown.trim();
+      }
+    }
+  }
 
   if (cand.groundingMetadata) {
     message.grounding_metadata = cand.groundingMetadata;
